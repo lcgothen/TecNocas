@@ -17,6 +17,7 @@
 #define ENC1_B 7 // D (D7)
 #define ENC2_A 4 // B (D12)
 #define ENC2_B 3 // B (D11)
+#define BOTTOM 63535
 
 //motores
 #define AIN1 2 // B 
@@ -40,8 +41,8 @@
 #define BASEB 0 //entre 0 e 256
 
 //constantes
-#define Kp 3 //2.2
-#define Kd 1.5 //0.85
+#define Kp 2.5 //2.2
+#define Kd 7 //0.85
 #define vbase 35 //35
 
 uint8_t count = 4;
@@ -50,6 +51,7 @@ uint8_t encA_1 = 0;
 uint8_t encB_1 = 0;
 uint8_t encA_2 = 0;
 uint8_t encB_2 = 0;
+uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0;
 
 int32_t pos;
 int32_t prop, der, old_prop, error;
@@ -338,22 +340,157 @@ void follow_line_right(int *IR_sensors)
 
 //*******************************************************************************
 
-//***************************** ENCODERS ****************************************
-void init_timer1(void)
+//***************************** SENSORES ****************************************
+void read_sensors(int *IR_sensors)
 {
+    //update IR sensors information
+    cli();
+    if(count>0 && count<5)
+    {    
+        if(sensx>=white)
+            IR_sensors[count-1] = 1000;
+        else if(sensx<=black)
+            IR_sensors[count-1] = 0; 
+    }
     
+    else if(count==0)
+    {
+        if(sensx>=white)
+            IR_sensors[4] = 1000;
+        else if(sensx<=black)
+            IR_sensors[4] = 0;
+    }
+    sei();
+}
+//*******************************************************************************
+
+//***************************** ENCODERS ****************************************
+void init_timer1(void) //0.1 ms
+{
+    TCCR1B = 0;                    // Stop tc1
+    TIFR1 |= (7<<OCF1A)|(1<<ICF1);  // Clear interruptions
+    TCCR1A = 0;                     // normal mode
+    TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 2000)
+    TIMSK1 = (1<<TOIE1);         // Enable overflow interrupt
+    TCCR1B = 2;                   // Start TC1 (TP=8)
+}
+
+ISR(TIMER1_OVF_vect)
+{
+    //update encoders information
+    if((PINB & (1<<0)) == 0)
+        enc1[0] = 0;
+    else
+        enc1[0] = 1;
+    if((PIND & (1<<7)) == 0)
+        enc2[0] = 0;
+    else
+        enc2[0] = 1;
+    if((PINB & (1<<4)) == 0)
+        enc1[1] = 0;
+    else
+        enc1[1] = 1;
+    if((PINB & (1<<3)) == 0)
+        enc2[1] = 0;
+    else
+        enc2[1] = 1;
+
+    //motor A state
+    if(st_motorA==0 && enc1[0]==1 && enc2[0]==0)
+    {
+        st_motorA=2;
+        posA++;
+    }
+    else if(st_motorA==0 && enc1[0]==0 && enc2[0]==1)
+    {
+        st_motorA=1;
+        posA--;
+    }
+    else if(st_motorA==2 && enc1[0]==1 && enc2[0]==1)
+    {
+        st_motorA=3;
+        posA++;
+    }
+    else if(st_motorA==2 && enc1[0]==0 && enc2[0]==0)
+    {
+        st_motorA=0;
+        posA--;
+    }
+    else if(st_motorA==1 && enc1[0]==1 && enc2[0]==1)
+    {
+        st_motorA=3;
+        posA--;
+    }
+    else if(st_motorA==1 && enc1[0]==0 && enc2[0]==0)
+    {
+        st_motorA=0;
+        posA++;
+    }
+    else if(st_motorA==3 && enc1[0]==0 && enc2[0]==1)
+    {
+        st_motorA=1;
+        posA++;
+    }
+    else if(st_motorA==3 && enc1[0]==1 && enc2[0]==0)
+    {
+        st_motorA=2;
+        posA--;
+    }
+
+    //motor B state
+    if(st_motorB==0 && enc1[1]==1 && enc2[1]==0)
+    {
+        st_motorB=2;
+        posB--;
+    }
+    else if(st_motorB==0 && enc1[1]==0 && enc2[1]==1)
+    {
+        st_motorB=1;
+        posB++;
+    }
+    else if(st_motorB==2 && enc1[1]==1 && enc2[1]==1)
+    {
+        st_motorB=3;
+        posB--;
+    }
+    else if(st_motorB==2 && enc1[1]==0 && enc2[1]==0)
+    {
+        st_motorB=0;
+        posB++;
+    }
+    else if(st_motorB==1 && enc1[1]==1 && enc2[1]==1)
+    {
+        st_motorB=3;
+        posB++;
+    }
+    else if(st_motorB==1 && enc1[1]==0 && enc2[1]==0)
+    {
+        st_motorB=0;
+        posB--;
+    }
+    else if(st_motorB==3 && enc1[1]==0 && enc2[1]==1)
+    {
+        st_motorB=1;
+        posB--;
+    }
+    else if(st_motorB==3 && enc1[1]==1 && enc2[1]==0)
+    {
+        st_motorB=2;
+        posB++;
+    }
+    TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 2000)
 }
 //*******************************************************************************
 
 int main(void)
 {
     int IR_sensors[5];
-    int enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0;
     init_interrupts();
     init_IO();
     init_analog();
     printf_init();
     init_pwm();
+    init_timer1();
     /*i2c_init();
     lcd1602_init();
     lcd1602_clear();*/
@@ -362,132 +499,10 @@ int main(void)
     {
         /*lcd1602_goto_xy(0,1);
         lcd1602_send_string("bla");*/
-        //update IR sensors information
-        cli();
-        if(count>0 && count<5)
-        {    
-            if(sensx>=white)
-                IR_sensors[count-1] = 1000;
-            else if(sensx<=black)
-                IR_sensors[count-1] = 0; 
-        }
-        
-        else if(count==0)
-        {
-            if(sensx>=white)
-                IR_sensors[4] = 1000;
-            else if(sensx<=black)
-                IR_sensors[4] = 0;
-        }
-        sei();
 
+        read_sensors(IR_sensors);
         //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
-
-        //update encoders information
-        if((PINB & (1<<0)) == 0)
-            enc1[0] = 0;
-        else
-            enc1[0] = 1;
-        if((PIND & (1<<7)) == 0)
-            enc2[0] = 0;
-        else
-            enc2[0] = 1;
-        if((PINB & (1<<4)) == 0)
-            enc1[1] = 0;
-        else
-            enc1[1] = 1;
-        if((PINB & (1<<3)) == 0)
-            enc2[1] = 0;
-        else
-            enc2[1] = 1;
-        //printf("1: %d  2: %d  3: %d 4: %d\n", enc1[0], enc2[0], enc1[1], enc2[1]);
-
-        //motor A state
-        if(st_motorA==0 && enc1[0]==1 && enc2[0]==0)
-        {
-            st_motorA=2;
-            posA++;
-        }
-        else if(st_motorA==0 && enc1[0]==0 && enc2[0]==1)
-        {
-            st_motorA=1;
-            posA--;
-        }
-        else if(st_motorA==2 && enc1[0]==1 && enc2[0]==1)
-        {
-            st_motorA=3;
-            posA++;
-        }
-        else if(st_motorA==2 && enc1[0]==0 && enc2[0]==0)
-        {
-            st_motorA=0;
-            posA--;
-        }
-        else if(st_motorA==1 && enc1[0]==1 && enc2[0]==1)
-        {
-            st_motorA=3;
-            posA--;
-        }
-        else if(st_motorA==1 && enc1[0]==0 && enc2[0]==0)
-        {
-            st_motorA=0;
-            posA++;
-        }
-        else if(st_motorA==3 && enc1[0]==0 && enc2[0]==1)
-        {
-            st_motorA=1;
-            posA++;
-        }
-        else if(st_motorA==3 && enc1[0]==1 && enc2[0]==0)
-        {
-            st_motorA=2;
-            posA--;
-        }
-        //printf("posA: %d ", posA);
-
-        //motor B state
-        if(st_motorB==0 && enc1[1]==1 && enc2[1]==0)
-        {
-            st_motorB=2;
-            posB--;
-        }
-        else if(st_motorB==0 && enc1[1]==0 && enc2[1]==1)
-        {
-            st_motorB=1;
-            posB++;
-        }
-        else if(st_motorB==2 && enc1[1]==1 && enc2[1]==1)
-        {
-            st_motorB=3;
-            posB--;
-        }
-        else if(st_motorB==2 && enc1[1]==0 && enc2[1]==0)
-        {
-            st_motorB=0;
-            posB++;
-        }
-        else if(st_motorB==1 && enc1[1]==1 && enc2[1]==1)
-        {
-            st_motorB=3;
-            posB++;
-        }
-        else if(st_motorB==1 && enc1[1]==0 && enc2[1]==0)
-        {
-            st_motorB=0;
-            posB--;
-        }
-        else if(st_motorB==3 && enc1[1]==0 && enc2[1]==1)
-        {
-            st_motorB=1;
-            posB--;
-        }
-        else if(st_motorB==3 && enc1[1]==1 && enc2[1]==0)
-        {
-            st_motorB=2;
-            posB++;
-        }
-        //printf("posB: %d \n", posB);
-
+        //printf("posA: %ld   posB: %ld\n", posA, posB);
         //SEGUE LINHA
         follow_line(IR_sensors);
         //follow_line_right(IR_sensors);
