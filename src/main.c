@@ -56,7 +56,7 @@ uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0;
 int32_t pos;
 int32_t prop, der, old_prop, error;
 
-int laps=0;
+int laps=0, st_count=0;
 
 void init_interrupts(void)
 {
@@ -178,10 +178,30 @@ void follow_line(int *IR_sensors)
 
   //printf(" error: %ld  pos: %ld\n", error, pos);
 
-    if(error<10 && error>-10)
+    if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
+    {
+        set_speed_A(0);
+        set_speed_B(0);
+    }
+
+    else if(IR_sensors[0]==0 && IR_sensors[1]==1000 && IR_sensors[2]==0 && IR_sensors[3]==1000 && IR_sensors[4]==0)
+    {
+        if(st_count==0)
+        {
+            laps++;
+        }
+
+        set_speed_A(vbase);
+        set_speed_B(vbase);
+    }
+
+    else if(error<10 && error>-10)
     {
         set_speed_A(vbase);
         set_speed_B(vbase);
+
+        if(st_count==1)
+                st_count=0;
     }
     
     else
@@ -195,6 +215,9 @@ void follow_line(int *IR_sensors)
 
             else
                 set_speed_B(vbase-error);
+            
+            if(st_count==1)
+                st_count=0;
         }
 
         else if(vbase-error<0)
@@ -206,12 +229,18 @@ void follow_line(int *IR_sensors)
 
             else
                 set_speed_A(vbase+error);
+            
+            if(st_count==1)
+                st_count=0;
         }
 
         else
         {
             set_speed_A(vbase+error);
             set_speed_B(vbase-error);
+
+            if(st_count==1)
+                st_count=0;
         }
     }
 }
