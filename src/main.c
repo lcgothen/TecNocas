@@ -17,7 +17,7 @@
 #define ENC1_B 7 // D (D7)
 #define ENC2_A 4 // B (D12)
 #define ENC2_B 3 // B (D11)
-#define BOTTOM 63535
+#define BOTTOM 65435
 
 //motores
 #define AIN1 2 // B 
@@ -252,11 +252,10 @@ void follow_line_left(int *IR_sensors)
     prop = pos-100;
     der = prop-old_prop;
 
-
     error = prop*Kp + der*Kd;
 
     //printf(" error: %ld  pos: %ld\n", error, pos);
-    
+
 
     if(error<10 && error>-10)
     {
@@ -394,12 +393,12 @@ void read_sensors(int *IR_sensors)
 //*******************************************************************************
 
 //***************************** ENCODERS ****************************************
-void init_timer1(void) //0.1 ms
+void init_timer1(void) //0.05 ms
 {
     TCCR1B = 0;                    // Stop tc1
     TIFR1 |= (7<<OCF1A)|(1<<ICF1);  // Clear interruptions
     TCCR1A = 0;                     // normal mode
-    TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 2000)
+    TCNT1 = BOTTOM;                 // Load BOTTOM value
     TIMSK1 = (1<<TOIE1);         // Enable overflow interrupt
     TCCR1B = 2;                   // Start TC1 (TP=8)
 }
