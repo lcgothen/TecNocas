@@ -17,7 +17,6 @@
 #define ENC1_B 7 // D (D7)
 #define ENC2_A 4 // B (D12)
 #define ENC2_B 3 // B (D11)
-#define BOTTOM 65435
 
 //motores
 #define AIN1 2 // B 
@@ -34,6 +33,9 @@
 #define IV4 3 // C
 #define IV5 4 // C
 
+//Touchswitch
+#define TS 5 //B (D13)
+
 //************************
 
 //velocidades base
@@ -45,13 +47,16 @@
 #define Kd 7 //0.85
 #define vbase 35 //35
 
+//timer enconders
+#define BOTTOM 65435
+
 uint8_t count = 4;
 uint16_t sensx = 0;
 uint8_t encA_1 = 0;
 uint8_t encB_1 = 0;
 uint8_t encA_2 = 0;
 uint8_t encB_2 = 0;
-uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0;
+uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0, deltax=0;
 
 int32_t pos;
 int32_t prop, der, old_prop, error;
@@ -82,16 +87,25 @@ void init_IO(void)
     DDRD &= ~(1<<ENC1_B);
     DDRB &= ~((1<<ENC1_A) | (1<<ENC2_A) | (1<<ENC2_B));
 
+    //activate pull-up resistor for encoders
+    PORTB |= (1<<ENC1_A) | (1<<ENC2_A) | (1<<ENC2_B);
+    PORTD |= (1<<ENC1_B);
+
     //set motor pins
     DDRD |= (1<<PWMA) | (1<<PWMB);
     DDRB |= (1<<AIN1) | (1<<AIN2);
     DDRD |= (1<<BIN1) | (1<<BIN2);
+
     //set direction
     PORTB |= (1<<AIN1);
     PORTD |= (1<<BIN1);
     PORTB &= ~(1<<AIN2);
     PORTD &= ~(1<<BIN2);
     PORTD |= (1<<PWMA) | (1<<PWMB);
+
+    //set touchswitch pin as input
+    DDRB &= ~(1<<TS);
+    PORTB |= (1<<TS);
 
 }
 
@@ -175,8 +189,8 @@ void follow_line(int *IR_sensors)
 
 
     error = prop*Kp + der*Kd;
-
-  //printf(" error: %ld  pos: %ld\n", error, pos);
+    
+    //printf(" error: %ld  pos: %ld\n", error, pos);
 
     if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
     {
@@ -189,6 +203,7 @@ void follow_line(int *IR_sensors)
         if(st_count==0)
         {
             laps++;
+            st_count=1;
         }
 
         set_speed_A(vbase);
@@ -257,7 +272,39 @@ void follow_line_left(int *IR_sensors)
     //printf(" error: %ld  pos: %ld\n", error, pos);
 
 
-    if(error<10 && error>-10)
+    if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
+    {
+        set_speed_A(0);
+        set_speed_B(0);
+    }
+
+    else if(IR_sensors[0]==0 && IR_sensors[1]==1000 && IR_sensors[2]==0 && IR_sensors[3]==1000 && IR_sensors[4]==0)
+    {
+        if(st_count==0)
+        {
+            laps++;
+        }
+
+        set_speed_A(vbase);
+        set_speed_B(vbase);
+    }
+
+    else if(error<10 && error>-10)
+    {
+        set_speed_A(vbase);
+        set_speed_B(vbase);
+
+        if(st_count==1)
+                st_count=0;
+    }
+
+    else if(IR_sensors[1]==0 && IR_sensors[2]==0)
+    {
+        set_speed_A(vbase+30);
+        set_speed_B(vbase);
+    }
+
+    else if((IR_sensors[1]==1000 && IR_sensors[2]==0 && IR_sensors[3]==0)|| (IR_sensors[2]==0 && IR_sensors[4]==0))
     {
         set_speed_A(vbase);
         set_speed_B(vbase);
@@ -274,6 +321,9 @@ void follow_line_left(int *IR_sensors)
 
             else
                 set_speed_B(vbase-error);
+            
+            if(st_count==1)
+                st_count=0;
         }
 
         else if(vbase-error<0)
@@ -285,12 +335,18 @@ void follow_line_left(int *IR_sensors)
 
             else
                 set_speed_A(vbase+error);
+            
+            if(st_count==1)
+                st_count=0;
         }
 
         else
         {
             set_speed_A(vbase+error);
             set_speed_B(vbase-error);
+
+            if(st_count==1)
+                st_count=0;
         }
     }
 }
@@ -507,12 +563,19 @@ ISR(TIMER1_OVF_vect)
         posB++;
     }
     TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 2000)
+    
+    if((posA+posB)/2>=210)
+    {
+        posA=0;
+        posB=0;
+        deltax++;
+    }
 }
 //*******************************************************************************
 
 int main(void)
 {
-    int IR_sensors[5];
+    int IR_sensors[5], st_ts=0, old_ts=0, ts;
     init_interrupts();
     init_IO();
     init_analog();
@@ -528,11 +591,40 @@ int main(void)
         /*lcd1602_goto_xy(0,1);
         lcd1602_send_string("bla");*/
 
+        printf("%d\n", st_ts);
         read_sensors(IR_sensors);
         //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
         //printf("posA: %ld   posB: %ld\n", posA, posB);
+
+        if(PINB & (1<<TS))
+            ts=1;
+        else
+            ts=0;
+
+        if(ts==1 && old_ts==0 && st_ts==0)
+        {
+            st_ts=1;
+            laps=0;
+        }
+        else if(ts==1 && old_ts==0 && st_ts==1)
+        {
+            st_ts=0;
+        }
+
+        old_ts=ts;
+
         //SEGUE LINHA
-        follow_line(IR_sensors);
+
+        //printf("%d\n", laps);
+
+        if(laps<2 && st_ts==1)
+            follow_line(IR_sensors);
+        else
+        {
+            set_speed_A(0);
+            set_speed_B(0);
+        }
+        
         //follow_line_right(IR_sensors);
     }
 }  
