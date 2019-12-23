@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -9,6 +10,7 @@
 //CORES
 #define black 100
 #define white 920
+#define gray 500
 
 //********PINS***********
 
@@ -31,7 +33,9 @@
 #define IV2 1 // C
 #define IV3 2 // C
 #define IV4 3 // C
-#define IV5 4 // C
+#define IV5 6 // C
+#define IV_d 16 
+#define halfline 9
 
 //Touchswitch
 #define TS 5 //B (D13)
@@ -43,9 +47,9 @@
 #define BASEB 0 //entre 0 e 256
 
 //constantes
-#define Kp 2.5 //2.2
-#define Kd 7 //0.85
-#define vbase 35 //35
+#define Kp 2 //5
+#define Kd 0 //7
+#define vbase 20 //35
 
 //timer enconders
 #define BOTTOM 65435
@@ -137,9 +141,13 @@ ISR(ADC_vect)
 {
     sensx = ADC;
     count++;
-    if(count<5)
+    if(count<4)
     {
         read_analog(count);
+    }
+    else if(count==4)
+    {
+        read_analog(6);
     }
     else
     {
@@ -262,17 +270,85 @@ void follow_line(int *IR_sensors)
 
 void follow_line_left(int *IR_sensors)
 {
-    old_prop = prop;
+    /*old_prop = prop;
     pos = (0*(int32_t)IR_sensors[0] + 1000*(int32_t)IR_sensors[1] + 2000*(int32_t)IR_sensors[2] + 3000*(int32_t)IR_sensors[3] + 4000*(int32_t)IR_sensors[4])/(20*((int32_t)IR_sensors[0]+(int32_t)IR_sensors[1]+(int32_t)IR_sensors[2]+(int32_t)IR_sensors[3]+(int32_t)IR_sensors[4]));
-    prop = pos-100;
+    prop = pos-100;*/
+
+    float sens1=0, sens2=0;
+
+    sens1 = IR_sensors[1]/2;
+    sens2 = IR_sensors[2]/2;
+
+    int32_t hbig, hsmall, dsmall;
+
+    // sens1 
+
+    hbig = sens2 - sens1;
+    hsmall = gray - sens1;
+    // /*if(hsmall<0 && hbig<0)
+    //     hsmall=-hsmall;*/
+    dsmall = hsmall*IV_d/hbig;
+
+    prop = IV_d - dsmall - halfline;
+
     der = prop-old_prop;
 
     error = prop*Kp + der*Kd;
 
-    //printf(" error: %ld  pos: %ld\n", error, pos);
+    // printf("A: %u B: %u\n", OCR0A, OCR0B);
+
+    if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
+    {
+        set_speed_A(0);
+        set_speed_B(0);
+    }
+
+    else if(IR_sensors[0]<=black && IR_sensors[1]>=white && IR_sensors[2]<=black && IR_sensors[3]>=white && IR_sensors[4]<=black)
+    {
+        if(st_count==0)
+        {
+            laps++;
+            st_count=1;
+        }
+
+        set_speed_A(vbase);
+        set_speed_B(vbase);
+    }
+
+    /*else if(error<10 && error>-10)
+    {
+        set_speed_A(vbase);
+        set_speed_B(vbase);
+
+        if(st_count==1)
+                st_count=0;
+    }*/
+    
+    else
+    {
+        if(st_count==1)
+            st_count=0;
+
+        if(vbase-error<15)
+            set_speed_A(15);
+        else if(vbase-error>25)
+            set_speed_A(25);
+        else
+            set_speed_A(vbase-error);
+
+        if(vbase+error<15)
+            set_speed_B(15);
+
+        else if(vbase+error>25)
+            set_speed_B(25);
+
+        else
+            set_speed_B(vbase+error);
+    }
+    //printf("%ld\n", vbase+error);
 
 
-    if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
+    /*if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
     {
         set_speed_A(0);
         set_speed_B(0);
@@ -348,7 +424,7 @@ void follow_line_left(int *IR_sensors)
             if(st_count==1)
                 st_count=0;
         }
-    }
+    }*/
 }
 
 void follow_line_right(int *IR_sensors)
@@ -431,18 +507,21 @@ void read_sensors(int *IR_sensors)
     cli();
     if(count>0 && count<5)
     {    
-        if(sensx>=white)
+        /*if(sensx>=white)
             IR_sensors[count-1] = 1000;
         else if(sensx<=black)
-            IR_sensors[count-1] = 0; 
+            IR_sensors[count-1] = 0; */
+        
+        IR_sensors[count-1] = sensx;
     }
     
     else if(count==0)
     {
-        if(sensx>=white)
+        /*if(sensx>=white)
             IR_sensors[4] = 1000;
         else if(sensx<=black)
-            IR_sensors[4] = 0;
+            IR_sensors[4] = 0;*/
+        IR_sensors[4] = sensx;
     }
     sei();
 }
@@ -582,16 +661,26 @@ int main(void)
     printf_init();
     init_pwm();
     init_timer1();
-    /*i2c_init();
+    i2c_init();
     lcd1602_init();
-    lcd1602_clear();*/
+    lcd1602_clear();
     
     while(1)
     {
-        /*lcd1602_goto_xy(0,1);
-        lcd1602_send_string("bla");*/
-
-        printf("%d\n", st_ts);
+        /*lcd1602_goto_xy(0,0);
+        lcd1602_send_string("laps: ");
+        lcd1602_send_char((char)(laps+48));
+        lcd1602_goto_xy(0,1);
+        lcd1602_send_string("moved: ");
+        if(deltax/1000!=0)
+            lcd1602_send_char((char)(deltax/1000+48));
+        if((deltax%1000)/100!=0)
+            lcd1602_send_char((char)((deltax%1000)/100+48));
+        if(((deltax%1000)%100)/10!=0)
+            lcd1602_send_char((char)(((deltax%1000)%100)/10+48));
+        lcd1602_send_char((char)(((deltax%1000)%100)%10+48));
+        lcd1602_send_string(" cm");
+        //printf("%d\n", st_ts);*/
         read_sensors(IR_sensors);
         //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
         //printf("posA: %ld   posB: %ld\n", posA, posB);
@@ -618,7 +707,7 @@ int main(void)
         //printf("%d\n", laps);
 
         if(laps<2 && st_ts==1)
-            follow_line(IR_sensors);
+            follow_line_left(IR_sensors);
         else
         {
             set_speed_A(0);
