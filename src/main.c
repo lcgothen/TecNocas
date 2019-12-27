@@ -10,7 +10,7 @@
 //CORES
 #define black 100
 #define white 920
-#define gray 500
+#define gray 512
 
 //********PINS***********
 
@@ -47,7 +47,7 @@
 #define BASEB 0 //entre 0 e 256
 
 //constantes
-#define Kp 2 //5
+#define Kp 1 //5
 #define Kd 0 //7
 #define vbase 20 //35
 
@@ -63,7 +63,7 @@ uint8_t encB_2 = 0;
 uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0, deltax=0;
 
 int32_t pos;
-int32_t prop, der, old_prop, error;
+int32_t prop, der, old_prop, error, curve=0;
 
 int laps=0, st_count=0;
 
@@ -270,32 +270,22 @@ void follow_line(int *IR_sensors)
 
 void follow_line_left(int *IR_sensors)
 {
-    /*old_prop = prop;
-    pos = (0*(int32_t)IR_sensors[0] + 1000*(int32_t)IR_sensors[1] + 2000*(int32_t)IR_sensors[2] + 3000*(int32_t)IR_sensors[3] + 4000*(int32_t)IR_sensors[4])/(20*((int32_t)IR_sensors[0]+(int32_t)IR_sensors[1]+(int32_t)IR_sensors[2]+(int32_t)IR_sensors[3]+(int32_t)IR_sensors[4]));
-    prop = pos-100;*/
-
-    float sens1=0, sens2=0;
-
-    sens1 = IR_sensors[1]/2;
-    sens2 = IR_sensors[2]/2;
-
     int32_t hbig, hsmall, dsmall;
 
-    // sens1 
+    hbig = IR_sensors[1] - IR_sensors[2] - 100;
 
-    hbig = sens2 - sens1;
-    hsmall = gray - sens1;
-    // /*if(hsmall<0 && hbig<0)
-    //     hsmall=-hsmall;*/
+    if(hbig<0)
+        hbig=-hbig;
+
+    hsmall = IR_sensors[1] - gray - 100;
+
     dsmall = hsmall*IV_d/hbig;
 
-    prop = IV_d - dsmall - halfline;
+    prop = dsmall - (IV_d - halfline);
 
     der = prop-old_prop;
 
     error = prop*Kp + der*Kd;
-
-    // printf("A: %u B: %u\n", OCR0A, OCR0B);
 
     if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
     {
@@ -315,186 +305,96 @@ void follow_line_left(int *IR_sensors)
         set_speed_B(vbase);
     }
 
-    /*else if(error<10 && error>-10)
+    else if(IR_sensors[4]<=black)
     {
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-
-        if(st_count==1)
-                st_count=0;
-    }*/
+        curve++;
+    }
     
     else
     {
         if(st_count==1)
             st_count=0;
 
-        if(vbase-error<15)
-            set_speed_A(15);
-        else if(vbase-error>25)
-            set_speed_A(25);
+        if(vbase-error<0)
+            set_speed_A(0);
+        else if(vbase-error>100)
+            set_speed_A(100);
         else
             set_speed_A(vbase-error);
 
-        if(vbase+error<15)
-            set_speed_B(15);
+        if(vbase+error<0)
+            set_speed_B(0);
 
-        else if(vbase+error>25)
-            set_speed_B(25);
+        else if(vbase+error>100)
+            set_speed_B(100);
 
         else
             set_speed_B(vbase+error);
     }
-    //printf("%ld\n", vbase+error);
+}
 
+void follow_line_right(int *IR_sensors)
+{
+    int32_t hbig, hsmall, dsmall;
 
-    /*if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
+    hbig = IR_sensors[3] - IR_sensors[2] - 100;
+
+    if(hbig<0)
+        hbig=-hbig;
+
+    hsmall = IR_sensors[3] - gray - 100;
+
+    dsmall = hsmall*IV_d/hbig;
+
+    prop = dsmall - (IV_d - halfline);
+
+    der = prop-old_prop;
+
+    error = prop*Kp + der*Kd;
+
+    if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
     {
         set_speed_A(0);
         set_speed_B(0);
     }
 
-    else if(IR_sensors[0]==0 && IR_sensors[1]==1000 && IR_sensors[2]==0 && IR_sensors[3]==1000 && IR_sensors[4]==0)
+    else if(IR_sensors[0]<=black && IR_sensors[1]>=white && IR_sensors[2]<=black && IR_sensors[3]>=white && IR_sensors[4]<=black)
     {
         if(st_count==0)
         {
             laps++;
+            st_count=1;
         }
 
         set_speed_A(vbase);
         set_speed_B(vbase);
     }
 
-    else if(error<10 && error>-10)
+    else if(IR_sensors[0]<=black)
     {
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-
+        curve++;
+    }
+    
+    else
+    {
         if(st_count==1)
-                st_count=0;
-    }
+            st_count=0;
 
-    else if(IR_sensors[1]==0 && IR_sensors[2]==0)
-    {
-        set_speed_A(vbase+30);
-        set_speed_B(vbase);
-    }
-
-    else if((IR_sensors[1]==1000 && IR_sensors[2]==0 && IR_sensors[3]==0)|| (IR_sensors[2]==0 && IR_sensors[4]==0))
-    {
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-    }
-    
-    else
-    {
         if(vbase+error<0)
-        {
             set_speed_A(0);
+        else if(vbase+error>100)
+            set_speed_A(100);
+        else
+            set_speed_A(vbase+error);
 
-            if(vbase-error>100)
-                set_speed_B(100);
-
-            else
-                set_speed_B(vbase-error);
-            
-            if(st_count==1)
-                st_count=0;
-        }
-
-        else if(vbase-error<0)
-        {
+        if(vbase-error<0)
             set_speed_B(0);
 
-            if(vbase+error>100)
-                set_speed_A(100);
-
-            else
-                set_speed_A(vbase+error);
-            
-            if(st_count==1)
-                st_count=0;
-        }
+        else if(vbase-error>100)
+            set_speed_B(100);
 
         else
-        {
-            set_speed_A(vbase+error);
             set_speed_B(vbase-error);
-
-            if(st_count==1)
-                st_count=0;
-        }
-    }*/
-}
-
-void follow_line_right(int *IR_sensors)
-{
-    old_prop = prop;
-    pos = (0*(int32_t)IR_sensors[0] + 1000*(int32_t)IR_sensors[1] + 2000*(int32_t)IR_sensors[2] + 3000*(int32_t)IR_sensors[3] + 4000*(int32_t)IR_sensors[4])/(20*((int32_t)IR_sensors[0]+(int32_t)IR_sensors[1]+(int32_t)IR_sensors[2]+(int32_t)IR_sensors[3]+(int32_t)IR_sensors[4]));
-    prop = pos-100;
-    der = prop-old_prop;
-
-
-    error = prop*Kp + der*Kd;
-
-    //printf(" error: %ld  pos: %ld\n", error, pos);
-
-    //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
-
-    if((IR_sensors[0]==0 && IR_sensors[1]!=0 && IR_sensors[2]==0 && IR_sensors[3]!=0 && IR_sensors[4]==0))
-    {
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-        laps++;
-    }
-
-    else if(IR_sensors[2]==0 && IR_sensors[3]==0 && IR_sensors[4]==0)
-    {
-        set_speed_A(5);
-        set_speed_B(vbase+30);
-    }
-
-    else if((IR_sensors[0]==0 && IR_sensors[1]==0 && IR_sensors[2]==0) || (IR_sensors[0]==0 && IR_sensors[1]!=0 && IR_sensors[2]==0))
-    {
-        set_speed_A(5);
-        set_speed_B(5);
-    }
-
-    else if(error<10 && error>-10)
-    {
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-    }
-    
-    else
-    {
-        if(vbase+error<0)
-        {
-            set_speed_A(0);
-
-            if(vbase-error>100)
-                set_speed_B(100);
-
-            else
-                set_speed_B(vbase-error);
-        }
-
-        else if(vbase-error<0)
-        {
-            set_speed_B(0);
-
-            if(vbase+error>100)
-                set_speed_A(100);
-
-            else
-                set_speed_A(vbase+error);
-        }
-
-        else
-        {
-            set_speed_A(vbase+error);
-            set_speed_B(vbase-error);
-        }
     }
 }
 
@@ -707,7 +607,9 @@ int main(void)
         //printf("%d\n", laps);
 
         if(laps<2 && st_ts==1)
-            follow_line_left(IR_sensors);
+        {
+            follow_line_right(IR_sensors);
+        }
         else
         {
             set_speed_A(0);
