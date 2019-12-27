@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -52,7 +53,10 @@
 #define vbase 20 //35
 
 //timer enconders
-#define BOTTOM 65435
+#define BOTTOM 65436
+
+//timer LCD
+#define BOTTOM_t2 49911
 
 uint8_t count = 4;
 uint16_t sensx = 0;
@@ -60,12 +64,14 @@ uint8_t encA_1 = 0;
 uint8_t encB_1 = 0;
 uint8_t encA_2 = 0;
 uint8_t encB_2 = 0;
-uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0, deltax=0;
+uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0, deltax=0, count_int=0;
+
+char lcd_message1[16], lcd_message2[16];
 
 int32_t pos;
 int32_t prop, der, old_prop, error, curve=0;
 
-int laps=0, st_count=0;
+int laps=0, st_count=0, st_ts=0, old_ts=0, ts;
 
 void init_interrupts(void)
 {
@@ -440,6 +446,8 @@ void init_timer1(void) //0.05 ms
 
 ISR(TIMER1_OVF_vect)
 {
+    count_int++;
+
     //update encoders information
     if((PINB & (1<<0)) == 0)
         enc1[0] = 0;
@@ -549,12 +557,57 @@ ISR(TIMER1_OVF_vect)
         posB=0;
         deltax++;
     }
+
+    if(count_int==5000)
+    {
+        count_int=0;
+        char aux[10];
+
+        if(st_ts==1 && laps<2)
+        {
+            lcd1602_clear();
+            strcpy(lcd_message1, "laps: ");
+            itoa(laps, aux, 10);
+            strcat(lcd_message1, aux);
+            strcpy(lcd_message2, "moved: ");
+            itoa(deltax, aux, 10);
+            strcat(lcd_message2, aux);
+            strcat(lcd_message2, "cm");
+            lcd1602_goto_xy(0,0);
+            lcd1602_send_string(lcd_message1);
+            lcd1602_goto_xy(0,1);
+            lcd1602_send_string(lcd_message2);
+        }
+
+        else if(laps>=2)
+        {
+            lcd1602_clear();
+            strcpy(lcd_message1, "DONE ");
+            strcpy(lcd_message2, "moved: ");
+            itoa(deltax, aux, 10);
+            strcat(lcd_message2, aux);
+            strcat(lcd_message2, "cm");
+            lcd1602_goto_xy(0,0);
+            lcd1602_send_string(lcd_message1);
+            lcd1602_goto_xy(0,1);
+            lcd1602_send_string(lcd_message2);
+        }
+
+        else
+        {
+            lcd1602_clear();
+            lcd1602_goto_xy(0,0);
+            lcd1602_send_string("     CLICK     ");
+            lcd1602_goto_xy(0,1);
+            lcd1602_send_string("   MICROSWITCH   ");
+        }
+    }
 }
 //*******************************************************************************
 
 int main(void)
 {
-    int IR_sensors[5], st_ts=0, old_ts=0, ts;
+    int IR_sensors[5];
     init_interrupts();
     init_IO();
     init_analog();
@@ -567,20 +620,6 @@ int main(void)
     
     while(1)
     {
-        /*lcd1602_goto_xy(0,0);
-        lcd1602_send_string("laps: ");
-        lcd1602_send_char((char)(laps+48));
-        lcd1602_goto_xy(0,1);
-        lcd1602_send_string("moved: ");
-        if(deltax/1000!=0)
-            lcd1602_send_char((char)(deltax/1000+48));
-        if((deltax%1000)/100!=0)
-            lcd1602_send_char((char)((deltax%1000)/100+48));
-        if(((deltax%1000)%100)/10!=0)
-            lcd1602_send_char((char)(((deltax%1000)%100)/10+48));
-        lcd1602_send_char((char)(((deltax%1000)%100)%10+48));
-        lcd1602_send_string(" cm");
-        //printf("%d\n", st_ts);*/
         read_sensors(IR_sensors);
         //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
         //printf("posA: %ld   posB: %ld\n", posA, posB);
@@ -604,8 +643,6 @@ int main(void)
 
         //SEGUE LINHA
 
-        //printf("%d\n", laps);
-
         if(laps<2 && st_ts==1)
         {
             follow_line_right(IR_sensors);
@@ -615,7 +652,5 @@ int main(void)
             set_speed_A(0);
             set_speed_B(0);
         }
-        
-        //follow_line_right(IR_sensors);
     }
 }  
