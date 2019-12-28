@@ -538,7 +538,7 @@ ISR(TIMER1_OVF_vect)
         st_motorB=2;
         posB++;
     }
-    TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 2000)
+    TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 800)
     
     if((posA+posB)/2>=210)
     {
