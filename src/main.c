@@ -43,20 +43,19 @@
 
 //************************
 
-//velocidades base
+//velocidades
 #define BASEA 0 //entre 0 e 256
 #define BASEB 0 //entre 0 e 256
+#define SPEED_MIN 0
+#define SPEED_MAX 40
+#define vbase 20
 
 //constantes
 #define Kp 1 //5
 #define Kd 0 //7
-#define vbase 20 //35
 
 //timer enconders
 #define BOTTOM 65436
-
-//timer LCD
-#define BOTTOM_t2 49911
 
 uint8_t count = 4;
 uint16_t sensx = 0;
@@ -69,9 +68,9 @@ uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0,
 char lcd_message1[16], lcd_message2[16];
 
 int32_t pos;
-int32_t prop, der, old_prop, error, curve=0;
+int32_t prop, der, old_prop, error;
 
-int laps=0, st_count=0, st_ts=0, old_ts=0, ts;
+int laps=0, st_count=0, st_ts=0, old_ts=0, ts, state_line=0;
 
 void init_interrupts(void)
 {
@@ -235,12 +234,12 @@ void follow_line(int *IR_sensors)
     
     else
     {
-        if(vbase+error<0)
+        if(vbase+error<SPEED_MIN)
         {
-            set_speed_A(0);
+            set_speed_A(SPEED_MIN);
 
-            if(vbase-error>100)
-                set_speed_B(100);
+            if(vbase-error>SPEED_MAX)
+                set_speed_B(SPEED_MAX);
 
             else
                 set_speed_B(vbase-error);
@@ -249,12 +248,12 @@ void follow_line(int *IR_sensors)
                 st_count=0;
         }
 
-        else if(vbase-error<0)
+        else if(vbase-error<SPEED_MIN)
         {
-            set_speed_B(0);
+            set_speed_B(SPEED_MIN);
 
-            if(vbase+error>100)
-                set_speed_A(100);
+            if(vbase+error>SPEED_MAX)
+                set_speed_A(SPEED_MAX);
 
             else
                 set_speed_A(vbase+error);
@@ -309,11 +308,6 @@ void follow_line_left(int *IR_sensors)
 
         set_speed_A(vbase);
         set_speed_B(vbase);
-    }
-
-    else if(IR_sensors[4]<=black)
-    {
-        curve++;
     }
     
     else
@@ -375,29 +369,24 @@ void follow_line_right(int *IR_sensors)
         set_speed_A(vbase);
         set_speed_B(vbase);
     }
-
-    else if(IR_sensors[0]<=black)
-    {
-        curve++;
-    }
     
     else
     {
         if(st_count==1)
             st_count=0;
 
-        if(vbase+error<0)
-            set_speed_A(0);
-        else if(vbase+error>100)
-            set_speed_A(100);
+        if(vbase+error<SPEED_MIN)
+            set_speed_A(SPEED_MIN);
+        else if(vbase+error>SPEED_MAX)
+            set_speed_A(SPEED_MAX);
         else
             set_speed_A(vbase+error);
 
-        if(vbase-error<0)
-            set_speed_B(0);
+        if(vbase-error<SPEED_MIN)
+            set_speed_B(SPEED_MIN);
 
-        else if(vbase-error>100)
-            set_speed_B(100);
+        else if(vbase-error>SPEED_MAX)
+            set_speed_B(SPEED_MAX);
 
         else
             set_speed_B(vbase-error);
@@ -433,7 +422,7 @@ void read_sensors(int *IR_sensors)
 }
 //*******************************************************************************
 
-//***************************** ENCODERS ****************************************
+//************************** ENCODERS E LCD *************************************
 void init_timer1(void) //0.05 ms
 {
     TCCR1B = 0;                    // Stop tc1
@@ -602,6 +591,7 @@ ISR(TIMER1_OVF_vect)
             lcd1602_send_string("   MICROSWITCH   ");
         }
     }
+
 }
 //*******************************************************************************
 
@@ -633,6 +623,7 @@ int main(void)
         {
             st_ts=1;
             laps=0;
+            deltax=0;
         }
         else if(ts==1 && old_ts==0 && st_ts==1)
         {
