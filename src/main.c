@@ -63,14 +63,14 @@ uint8_t encA_1 = 0;
 uint8_t encB_1 = 0;
 uint8_t encA_2 = 0;
 uint8_t encB_2 = 0;
-uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0, deltax=0, count_int=0;
+uint32_t enc1[2]={0,0}, enc2[2]={0,0}, st_motorA=0, posA=0, st_motorB=0, posB=0, deltax=0, count_int=0, count_c=0,count_laps=0;
 
 char lcd_message1[16], lcd_message2[16];
 
 int32_t pos;
 int32_t prop, der, old_prop, error;
 
-int laps=0, st_count=0, st_ts=0, old_ts=0, ts, state_line=0;
+int laps=0, /*st_ts=0, old_ts=0, ts,*/ state_line=0, state_robot=0;
 
 void init_interrupts(void)
 {
@@ -91,6 +91,7 @@ void init_IO(void)
     DDRC &= ~(1<<IV3);
     DDRC &= ~(1<<IV4);
     DDRC &= ~(1<<IV5);
+    DDRC &= ~(1<<7);
 
     //set encoder pins as inputs
     DDRD &= ~(1<<ENC1_B);
@@ -154,6 +155,10 @@ ISR(ADC_vect)
     {
         read_analog(6);
     }
+    else if(count==5)
+    {
+        read_analog(7);
+    }
     else
     {
         count = 0;
@@ -211,12 +216,12 @@ void follow_line(int *IR_sensors)
         set_speed_B(0);
     }
 
-    else if(IR_sensors[0]==0 && IR_sensors[1]==1000 && IR_sensors[2]==0 && IR_sensors[3]==1000 && IR_sensors[4]==0)
+    else if(IR_sensors[0]==0 && IR_sensors[4]==0)
     {
-        if(st_count==0)
+        if(count_laps==0)
         {
             laps++;
-            st_count=1;
+            count_laps=40000;
         }
 
         set_speed_A(vbase);
@@ -227,9 +232,6 @@ void follow_line(int *IR_sensors)
     {
         set_speed_A(vbase);
         set_speed_B(vbase);
-
-        if(st_count==1)
-                st_count=0;
     }
     
     else
@@ -243,9 +245,7 @@ void follow_line(int *IR_sensors)
 
             else
                 set_speed_B(vbase-error);
-            
-            if(st_count==1)
-                st_count=0;
+        
         }
 
         else if(vbase-error<SPEED_MIN)
@@ -257,18 +257,12 @@ void follow_line(int *IR_sensors)
 
             else
                 set_speed_A(vbase+error);
-            
-            if(st_count==1)
-                st_count=0;
         }
 
         else
         {
             set_speed_A(vbase+error);
             set_speed_B(vbase-error);
-
-            if(st_count==1)
-                st_count=0;
         }
     }
 }
@@ -298,12 +292,12 @@ void follow_line_left(int *IR_sensors)
         set_speed_B(0);
     }
 
-    else if(IR_sensors[0]<=black && IR_sensors[1]>=white && IR_sensors[2]<=black && IR_sensors[3]>=white && IR_sensors[4]<=black)
+    else if(IR_sensors[0]<=black && IR_sensors[4]<=black)
     {
-        if(st_count==0)
+        if(count_laps==0)
         {
             laps++;
-            st_count=1;
+            count_laps=40000;
         }
 
         set_speed_A(vbase);
@@ -312,9 +306,6 @@ void follow_line_left(int *IR_sensors)
     
     else
     {
-        if(st_count==1)
-            st_count=0;
-
         if(vbase-error<0)
             set_speed_A(0);
         else if(vbase-error>100)
@@ -358,12 +349,12 @@ void follow_line_right(int *IR_sensors)
         set_speed_B(0);
     }
 
-    else if(IR_sensors[0]<=black && IR_sensors[1]>=white && IR_sensors[2]<=black && IR_sensors[3]>=white && IR_sensors[4]<=black)
+    else if(IR_sensors[0]<=black && IR_sensors[4]<=black)
     {
-        if(st_count==0)
+        if(count_laps==0)
         {
             laps++;
-            st_count=1;
+            count_laps=40000;
         }
 
         set_speed_A(vbase);
@@ -372,9 +363,6 @@ void follow_line_right(int *IR_sensors)
     
     else
     {
-        if(st_count==1)
-            st_count=0;
-
         if(vbase+error<SPEED_MIN)
             set_speed_A(SPEED_MIN);
         else if(vbase+error>SPEED_MAX)
@@ -400,7 +388,7 @@ void read_sensors(int *IR_sensors)
 {
     //update IR sensors information
     cli();
-    if(count>0 && count<5)
+    if(count>0 && count<6)
     {    
         /*if(sensx>=white)
             IR_sensors[count-1] = 1000;
@@ -416,7 +404,7 @@ void read_sensors(int *IR_sensors)
             IR_sensors[4] = 1000;
         else if(sensx<=black)
             IR_sensors[4] = 0;*/
-        IR_sensors[4] = sensx;
+        IR_sensors[5] = sensx;
     }
     sei();
 }
@@ -436,6 +424,12 @@ void init_timer1(void) //0.05 ms
 ISR(TIMER1_OVF_vect)
 {
     count_int++;
+
+    if(count_c!=0)
+        count_c--;
+
+    if(count_laps!=0)
+        count_laps--;
 
     //update encoders information
     if((PINB & (1<<0)) == 0)
@@ -552,7 +546,7 @@ ISR(TIMER1_OVF_vect)
         count_int=0;
         char aux[10];
 
-        if(st_ts==1 && laps<2)
+        if(state_robot==1 && laps<2)
         {
             lcd1602_clear();
             strcpy(lcd_message1, "laps: ");
@@ -586,9 +580,9 @@ ISR(TIMER1_OVF_vect)
         {
             lcd1602_clear();
             lcd1602_goto_xy(0,0);
-            lcd1602_send_string("     CLICK     ");
+            lcd1602_send_string(" ACTIVATE WITH ");
             lcd1602_goto_xy(0,1);
-            lcd1602_send_string("   MICROSWITCH   ");
+            lcd1602_send_string(" REMOTE CONTROL ");
         }
     }
 
@@ -597,7 +591,7 @@ ISR(TIMER1_OVF_vect)
 
 int main(void)
 {
-    int IR_sensors[5];
+    int IR_sensors[6];
     init_interrupts();
     init_IO();
     init_analog();
@@ -613,8 +607,9 @@ int main(void)
         read_sensors(IR_sensors);
         //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
         //printf("posA: %ld   posB: %ld\n", posA, posB);
+        //printf("%d \n", state_robot);
 
-        if(PINB & (1<<TS))
+        /*if(PINB & (1<<TS))
             ts=1;
         else
             ts=0;
@@ -630,11 +625,24 @@ int main(void)
             st_ts=0;
         }
 
-        old_ts=ts;
+        old_ts=ts;*/
+
+        if(state_robot==0 && count_c==0 && IR_sensors[5]==0)
+        {
+            state_robot=1;
+            count_c=5000;
+            laps=0;
+            deltax=0;
+        }
+        else if(state_robot==1 && count_c==0 && IR_sensors[5]==0)
+        {
+            state_robot=0;
+            count_c=5000;
+        }
 
         //SEGUE LINHA
 
-        if(laps<2 && st_ts==1)
+        if(laps<2 && state_robot==1)
         {
             follow_line_right(IR_sensors);
         }
