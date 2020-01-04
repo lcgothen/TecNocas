@@ -50,10 +50,6 @@
 #define SPEED_MAX 40
 #define vbase 20
 
-//constantes
-#define Kp 1 //5
-#define Kd 0 //7
-
 //timer enconders
 #define BOTTOM 65436
 
@@ -70,7 +66,7 @@ char lcd_message1[16], lcd_message2[16];
 int32_t pos;
 int32_t prop, der, old_prop, error;
 
-int laps=0, /*st_ts=0, old_ts=0, ts,*/ state_line=0, state_robot=0;
+int laps=0, st_ts=0, old_ts=0, ts, state_line=0, state_robot=0;
 
 void init_interrupts(void)
 {
@@ -198,7 +194,7 @@ void set_speed_B(float v)
 //******************************************************************************
 
 //*************************** FOLLOW LINE **************************************
-void follow_line(int *IR_sensors)
+/*void follow_line(int *IR_sensors)
 {
     old_prop = prop;
     pos = (0*(int32_t)IR_sensors[0] + 1000*(int32_t)IR_sensors[1] + 2000*(int32_t)IR_sensors[2] + 3000*(int32_t)IR_sensors[3] + 4000*(int32_t)IR_sensors[4])/(20*((int32_t)IR_sensors[0]+(int32_t)IR_sensors[1]+(int32_t)IR_sensors[2]+(int32_t)IR_sensors[3]+(int32_t)IR_sensors[4]));
@@ -265,7 +261,7 @@ void follow_line(int *IR_sensors)
             set_speed_B(vbase-error);
         }
     }
-}
+}*/
 
 void follow_line_left(int *IR_sensors)
 {
@@ -280,11 +276,7 @@ void follow_line_left(int *IR_sensors)
 
     dsmall = hsmall*IV_d/hbig;
 
-    prop = dsmall - (IV_d - halfline);
-
-    der = prop-old_prop;
-
-    error = prop*Kp + der*Kd;
+    error = dsmall - (IV_d - halfline);
 
     if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
     {
@@ -337,11 +329,7 @@ void follow_line_right(int *IR_sensors)
 
     dsmall = hsmall*IV_d/hbig;
 
-    prop = dsmall - (IV_d - halfline);
-
-    der = prop-old_prop;
-
-    error = prop*Kp + der*Kd;
+    error = dsmall - (IV_d - halfline);
 
     if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
     {
@@ -546,7 +534,7 @@ ISR(TIMER1_OVF_vect)
         count_int=0;
         char aux[10];
 
-        if(state_robot==1 && laps<2)
+        if(state_robot==0 && laps<2 && st_ts==1)
         {
             lcd1602_clear();
             strcpy(lcd_message1, "laps: ");
@@ -558,11 +546,31 @@ ISR(TIMER1_OVF_vect)
             strcat(lcd_message2, "cm");
             lcd1602_goto_xy(0,0);
             lcd1602_send_string(lcd_message1);
+            lcd1602_goto_xy(15,0);
+            lcd1602_send_char('R');
             lcd1602_goto_xy(0,1);
             lcd1602_send_string(lcd_message2);
         }
 
-        else if(laps>=2)
+        else if(state_robot==1 && laps<2 && st_ts==1)
+        {
+            lcd1602_clear();
+            strcpy(lcd_message1, "laps: ");
+            itoa(laps, aux, 10);
+            strcat(lcd_message1, aux);
+            strcpy(lcd_message2, "moved: ");
+            itoa(deltax, aux, 10);
+            strcat(lcd_message2, aux);
+            strcat(lcd_message2, "cm");
+            lcd1602_goto_xy(0,0);
+            lcd1602_send_string(lcd_message1);
+            lcd1602_goto_xy(15,0);
+            lcd1602_send_char('L');
+            lcd1602_goto_xy(0,1);
+            lcd1602_send_string(lcd_message2);
+        }
+
+        else if(laps>=2 && st_ts==1)
         {
             lcd1602_clear();
             strcpy(lcd_message1, "DONE ");
@@ -582,7 +590,7 @@ ISR(TIMER1_OVF_vect)
             lcd1602_goto_xy(0,0);
             lcd1602_send_string(" ACTIVATE WITH ");
             lcd1602_goto_xy(0,1);
-            lcd1602_send_string(" REMOTE CONTROL ");
+            lcd1602_send_string("  MICROSWITCH  ");
         }
     }
 
@@ -609,7 +617,7 @@ int main(void)
         //printf("posA: %ld   posB: %ld\n", posA, posB);
         //printf("%d \n", state_robot);
 
-        /*if(PINB & (1<<TS))
+        if(PINB & (1<<TS))
             ts=1;
         else
             ts=0;
@@ -625,14 +633,12 @@ int main(void)
             st_ts=0;
         }
 
-        old_ts=ts;*/
+        old_ts=ts;
 
         if(state_robot==0 && count_c==0 && IR_sensors[5]==0)
         {
             state_robot=1;
             count_c=5000;
-            laps=0;
-            deltax=0;
         }
         else if(state_robot==1 && count_c==0 && IR_sensors[5]==0)
         {
@@ -642,9 +648,13 @@ int main(void)
 
         //SEGUE LINHA
 
-        if(laps<2 && state_robot==1)
+        if(laps<2 && state_robot==0 && st_ts==1)
         {
             follow_line_right(IR_sensors);
+        }
+        else if(laps<2 && state_robot==1 && st_ts==1)
+        {
+            follow_line_left(IR_sensors);
         }
         else
         {
