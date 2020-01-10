@@ -3,6 +3,7 @@
 #include <string.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include <util/delay.h>
 #include "serial_printf.h"
 #include "i2c.h"
@@ -12,8 +13,6 @@
 #define black 100
 #define white 920
 #define gray 512
-
-//********PINS***********
 
 //encoders
 #define ENC1_A 0 // B (D8)
@@ -41,8 +40,6 @@
 //Touchswitch
 #define TS 5 //B (D13)
 
-//************************
-
 //velocidades
 #define BASEA 0 //entre 0 e 256
 #define BASEB 0 //entre 0 e 256
@@ -53,7 +50,10 @@
 //timer enconders
 #define BOTTOM 65436
 
-uint8_t count = 4;
+//laps number
+#define NLAPS 5
+
+uint8_t count = 4, laps=0;
 uint16_t sensx = 0;
 uint8_t encA_1 = 0;
 uint8_t encB_1 = 0;
@@ -66,17 +66,13 @@ char lcd_message1[16], lcd_message2[16];
 int32_t pos;
 int32_t prop, der, old_prop, error;
 
-int laps=0, st_ts=0, old_ts=0, ts, state_line=0, state_robot=0;
+int st_ts=0, old_ts=0, ts, state_line=0, state_robot=0;
+uint8_t EEMEM laps_eeprom;
 
 void init_interrupts(void)
 {
     //enable all interrupts
     SREG = 0b10000000;
-
-    //enable pin change interrupts
-    /*PCICR = (1<<PCIE2) | (1<<PCIE0);
-    PCMSK2 = (1<<PCINT23);
-    PCMSK0 = (1<<PCINT4) | (1<<PCINT3) | (1<<PCINT0);*/
 }
 
 void init_IO(void)
@@ -194,75 +190,6 @@ void set_speed_B(float v)
 //******************************************************************************
 
 //*************************** FOLLOW LINE **************************************
-/*void follow_line(int *IR_sensors)
-{
-    old_prop = prop;
-    pos = (0*(int32_t)IR_sensors[0] + 1000*(int32_t)IR_sensors[1] + 2000*(int32_t)IR_sensors[2] + 3000*(int32_t)IR_sensors[3] + 4000*(int32_t)IR_sensors[4])/(20*((int32_t)IR_sensors[0]+(int32_t)IR_sensors[1]+(int32_t)IR_sensors[2]+(int32_t)IR_sensors[3]+(int32_t)IR_sensors[4]));
-    prop = pos-100;
-    der = prop-old_prop;
-
-
-    error = prop*Kp + der*Kd;
-    
-    //printf(" error: %ld  pos: %ld\n", error, pos);
-
-    if(IR_sensors[0]==1000 && IR_sensors[1]==1000 && IR_sensors[2]==1000 && IR_sensors[3]==1000 && IR_sensors[4]==1000)
-    {
-        set_speed_A(0);
-        set_speed_B(0);
-    }
-
-    else if(IR_sensors[0]==0 && IR_sensors[4]==0)
-    {
-        if(count_laps==0)
-        {
-            laps++;
-            count_laps=40000;
-        }
-
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-    }
-
-    else if(error<10 && error>-10)
-    {
-        set_speed_A(vbase);
-        set_speed_B(vbase);
-    }
-    
-    else
-    {
-        if(vbase+error<SPEED_MIN)
-        {
-            set_speed_A(SPEED_MIN);
-
-            if(vbase-error>SPEED_MAX)
-                set_speed_B(SPEED_MAX);
-
-            else
-                set_speed_B(vbase-error);
-        
-        }
-
-        else if(vbase-error<SPEED_MIN)
-        {
-            set_speed_B(SPEED_MIN);
-
-            if(vbase+error>SPEED_MAX)
-                set_speed_A(SPEED_MAX);
-
-            else
-                set_speed_A(vbase+error);
-        }
-
-        else
-        {
-            set_speed_A(vbase+error);
-            set_speed_B(vbase-error);
-        }
-    }
-}*/
-
 void follow_line_left(int *IR_sensors)
 {
     int32_t hbig, hsmall, dsmall;
@@ -289,6 +216,7 @@ void follow_line_left(int *IR_sensors)
         if(count_laps==0)
         {
             laps++;
+            eeprom_update_byte(&laps_eeprom, laps);
             count_laps=40000;
         }
 
@@ -342,6 +270,7 @@ void follow_line_right(int *IR_sensors)
         if(count_laps==0)
         {
             laps++;
+            eeprom_update_byte(&laps_eeprom, laps);
             count_laps=40000;
         }
 
@@ -377,21 +306,12 @@ void read_sensors(int *IR_sensors)
     //update IR sensors information
     cli();
     if(count>0 && count<6)
-    {    
-        /*if(sensx>=white)
-            IR_sensors[count-1] = 1000;
-        else if(sensx<=black)
-            IR_sensors[count-1] = 0; */
-        
+    {            
         IR_sensors[count-1] = sensx;
     }
     
     else if(count==0)
     {
-        /*if(sensx>=white)
-            IR_sensors[4] = 1000;
-        else if(sensx<=black)
-            IR_sensors[4] = 0;*/
         IR_sensors[5] = sensx;
     }
     sei();
@@ -534,7 +454,7 @@ ISR(TIMER1_OVF_vect)
         count_int=0;
         char aux[10];
 
-        if(state_robot==0 && laps<2 && st_ts==1)
+        if(state_robot==0 && laps<NLAPS && st_ts==1)
         {
             lcd1602_clear();
             strcpy(lcd_message1, "laps: ");
@@ -552,7 +472,7 @@ ISR(TIMER1_OVF_vect)
             lcd1602_send_string(lcd_message2);
         }
 
-        else if(state_robot==1 && laps<2 && st_ts==1)
+        else if(state_robot==1 && laps<NLAPS && st_ts==1)
         {
             lcd1602_clear();
             strcpy(lcd_message1, "laps: ");
@@ -570,7 +490,7 @@ ISR(TIMER1_OVF_vect)
             lcd1602_send_string(lcd_message2);
         }
 
-        else if(laps>=2 && st_ts==1)
+        else if(laps>=NLAPS && st_ts==1)
         {
             lcd1602_clear();
             strcpy(lcd_message1, "DONE ");
@@ -609,31 +529,44 @@ int main(void)
     i2c_init();
     lcd1602_init();
     lcd1602_clear();
+
+    laps = eeprom_read_byte(&laps_eeprom);
+    if(laps<0 || laps>NLAPS)
+    {
+        eeprom_update_byte(&laps_eeprom, 0);
+        laps = 0;
+    }
     
     while(1)
     {
         read_sensors(IR_sensors);
-        //printf("1: %d  2: %d  3: %d  4: %d  5: %d\n", IR_sensors[0], IR_sensors[1], IR_sensors[2], IR_sensors[3], IR_sensors[4]);
-        //printf("posA: %ld   posB: %ld\n", posA, posB);
-        //printf("%d \n", state_robot);
+
+        //MICROSWITCH CONTROL FOR ON AND OFF
 
         if(PINB & (1<<TS))
             ts=1;
         else
             ts=0;
 
-        if(ts==1 && old_ts==0 && st_ts==0)
+        if(ts==1 && old_ts==0 && st_ts==0 && (laps==0 || laps==NLAPS))
         {
             st_ts=1;
             laps=0;
             deltax=0;
         }
+        else if(ts==1 && old_ts==0 && st_ts==0 && (laps!=0 && laps!=NLAPS))
+        {
+            st_ts=1;
+        }
         else if(ts==1 && old_ts==0 && st_ts==1)
         {
             st_ts=0;
+            laps=0;
         }
 
         old_ts=ts;
+
+        //REMOTE CONTROL FOR LINE CHOICE
 
         if(state_robot==0 && count_c==0 && IR_sensors[5]==0)
         {
@@ -646,13 +579,13 @@ int main(void)
             count_c=5000;
         }
 
-        //SEGUE LINHA
+        //FOLLOW_LINE CHOICE
 
-        if(laps<2 && state_robot==0 && st_ts==1)
+        if(laps<NLAPS && state_robot==0 && st_ts==1)
         {
             follow_line_right(IR_sensors);
         }
-        else if(laps<2 && state_robot==1 && st_ts==1)
+        else if(laps<NLAPS && state_robot==1 && st_ts==1)
         {
             follow_line_left(IR_sensors);
         }
