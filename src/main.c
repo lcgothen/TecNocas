@@ -9,10 +9,10 @@
 #include "i2c.h"
 #include "lcd1602.h"
 
-//CORES
-#define black 100
-#define white 920
-#define gray 512
+//colours
+#define BLACK 100
+#define WHITE 920
+#define GRAY 512
 
 //encoders
 #define ENC1_A 0 // B (D8)
@@ -29,13 +29,14 @@
 #define PWMB 6 // D
 
 //sensores IV
-#define IV1 0 // C
-#define IV2 1 // C
-#define IV3 2 // C
-#define IV4 3 // C
-#define IV5 6 // C
-#define IV_d 16 
-#define halfline 9
+#define IR1 0 // C
+#define IR2 1 // C
+#define IR3 2 // C
+#define IR4 3 // C
+#define IR5 6 // C
+#define IR_REMOTE 7 // C
+#define IR_D 16 
+#define HALFLINE 9
 
 //Touchswitch
 #define TS 5 //B (D13)
@@ -45,7 +46,7 @@
 #define BASEB 0 //entre 0 e 256
 #define SPEED_MIN 0
 #define SPEED_MAX 40
-#define vbase 20
+#define VBASE 20
 
 //timer enconders
 #define BOTTOM 65436
@@ -78,12 +79,12 @@ void init_interrupts(void)
 void init_IO(void)
 {
     //set IR sensors pins as inputs
-    DDRC &= ~(1<<IV1);
-    DDRC &= ~(1<<IV2);
-    DDRC &= ~(1<<IV3);
-    DDRC &= ~(1<<IV4);
-    DDRC &= ~(1<<IV5);
-    DDRC &= ~(1<<7);
+    DDRC &= ~(1<<IR1);
+    DDRC &= ~(1<<IR2);
+    DDRC &= ~(1<<IR3);
+    DDRC &= ~(1<<IR4);
+    DDRC &= ~(1<<IR5);
+    DDRC &= ~(1<<IR_REMOTE);
 
     //set encoder pins as inputs
     DDRD &= ~(1<<ENC1_B);
@@ -114,21 +115,20 @@ void init_IO(void)
 //***************************** ANALOG READ ************************************
 void read_analog(uint8_t bit)
 {
-    ADMUX = bit;
+    ADMUX = bit; //indicates which pin to read from
     ADMUX = ADMUX | (1<<REFS0);
-   // ADMUX &= ~(1<<ADLAR);
     ADCSRA = ADCSRA | (1<<ADSC);
 }
 
 void init_analog(void)
 {
-    //Definir Vref=AVcc
+    //define Vref=Vcc
     ADMUX = ADMUX | (1<<REFS0);
 
-    // Desativar buffer digital em PC0
+    //deactivate digital buffer at PC0
     DIDR0 = DIDR0 | 0b00011111;
 
-    // Pré-divisor em 128 e ativar ADC
+    //prescaler = 128 and activate ADC
     ADCSRA |= (7<<ADPS0) | (1<<ADEN) | (1<<ADIE);
 
     //start reading
@@ -139,18 +139,26 @@ ISR(ADC_vect)
 {
     sensx = ADC;
     count++;
+
+    //read pins 1 to 3
     if(count<4)
     {
         read_analog(count);
     }
+
+    //read pin 6
     else if(count==4)
     {
-        read_analog(6);
+        read_analog(6); //IR 5 is at pin 6
     }
+
+    //read pin 7
     else if(count==5)
     {
-        read_analog(7);
+        read_analog(7); //IR for remote control is at pin 7
     }
+
+    //restart at pin 0
     else
     {
         count = 0;
@@ -175,14 +183,14 @@ void init_pwm(void)
 void set_speed_A(float v)
 {
     float aux;
-    aux = v*255/100;
+    aux = v*255/100; //convert from percentage to 256 scale
     OCR0A = aux;
 }
 
 void set_speed_B(float v)
 {
     float aux;
-    aux = v*255/100;
+    aux = v*255/100; //convert from percentage to 256 scale
     OCR0B = aux;
 }
 
@@ -194,24 +202,27 @@ void follow_line_left(int *IR_sensors)
 {
     int32_t hbig, hsmall, dsmall;
 
+    //calculate error based on 2 sensors
     hbig = IR_sensors[1] - IR_sensors[2] - 100;
 
     if(hbig<0)
         hbig=-hbig;
 
-    hsmall = IR_sensors[1] - gray - 100;
+    hsmall = IR_sensors[1] - GRAY - 100;
 
-    dsmall = hsmall*IV_d/hbig;
+    dsmall = hsmall*IR_D/hbig;
 
-    error = dsmall - (IV_d - halfline);
+    error = dsmall - (IR_D - HALFLINE);
 
-    if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
+    //stop if completely out of the circuit
+    if(IR_sensors[0]>=WHITE && IR_sensors[1]>=WHITE && IR_sensors[2]>=WHITE && IR_sensors[3]>=WHITE && IR_sensors[4]>=WHITE)
     {
         set_speed_A(0);
         set_speed_B(0);
     }
 
-    else if(IR_sensors[0]<=black && IR_sensors[4]<=black)
+    //count a lap
+    else if(IR_sensors[0]<=BLACK && IR_sensors[4]<=BLACK)
     {
         if(count_laps==0)
         {
@@ -220,27 +231,28 @@ void follow_line_left(int *IR_sensors)
             count_laps=40000;
         }
 
-        set_speed_A(vbase);
-        set_speed_B(vbase);
+        set_speed_A(VBASE);
+        set_speed_B(VBASE);
     }
     
+    //set speed based on error
     else
     {
-        if(vbase-error<0)
+        if(VBASE-error<0)
             set_speed_A(0);
-        else if(vbase-error>100)
+        else if(VBASE-error>100)
             set_speed_A(100);
         else
-            set_speed_A(vbase-error);
+            set_speed_A(VBASE-error);
 
-        if(vbase+error<0)
+        if(VBASE+error<0)
             set_speed_B(0);
 
-        else if(vbase+error>100)
+        else if(VBASE+error>100)
             set_speed_B(100);
 
         else
-            set_speed_B(vbase+error);
+            set_speed_B(VBASE+error);
     }
 }
 
@@ -248,24 +260,27 @@ void follow_line_right(int *IR_sensors)
 {
     int32_t hbig, hsmall, dsmall;
 
+    //calculate error based on 2 sensors
     hbig = IR_sensors[3] - IR_sensors[2] - 100;
 
     if(hbig<0)
         hbig=-hbig;
 
-    hsmall = IR_sensors[3] - gray - 100;
+    hsmall = IR_sensors[3] - GRAY - 100;
 
-    dsmall = hsmall*IV_d/hbig;
+    dsmall = hsmall*IR_D/hbig;
 
-    error = dsmall - (IV_d - halfline);
+    error = dsmall - (IR_D - HALFLINE);
 
-    if(IR_sensors[0]>=white && IR_sensors[1]>=white && IR_sensors[2]>=white && IR_sensors[3]>=white && IR_sensors[4]>=white)
+    //stop if completely out of the circuit
+    if(IR_sensors[0]>=WHITE && IR_sensors[1]>=WHITE && IR_sensors[2]>=WHITE && IR_sensors[3]>=WHITE && IR_sensors[4]>=WHITE)
     {
         set_speed_A(0);
         set_speed_B(0);
     }
 
-    else if(IR_sensors[0]<=black && IR_sensors[4]<=black)
+    //count a lap
+    else if(IR_sensors[0]<=BLACK && IR_sensors[4]<=BLACK)
     {
         if(count_laps==0)
         {
@@ -274,27 +289,28 @@ void follow_line_right(int *IR_sensors)
             count_laps=40000;
         }
 
-        set_speed_A(vbase);
-        set_speed_B(vbase);
+        set_speed_A(VBASE);
+        set_speed_B(VBASE);
     }
     
+    //set speed based on error
     else
     {
-        if(vbase+error<SPEED_MIN)
+        if(VBASE+error<SPEED_MIN)
             set_speed_A(SPEED_MIN);
-        else if(vbase+error>SPEED_MAX)
+        else if(VBASE+error>SPEED_MAX)
             set_speed_A(SPEED_MAX);
         else
-            set_speed_A(vbase+error);
+            set_speed_A(VBASE+error);
 
-        if(vbase-error<SPEED_MIN)
+        if(VBASE-error<SPEED_MIN)
             set_speed_B(SPEED_MIN);
 
-        else if(vbase-error>SPEED_MAX)
+        else if(VBASE-error>SPEED_MAX)
             set_speed_B(SPEED_MAX);
 
         else
-            set_speed_B(vbase-error);
+            set_speed_B(VBASE-error);
     }
 }
 
@@ -321,18 +337,19 @@ void read_sensors(int *IR_sensors)
 //************************** ENCODERS E LCD *************************************
 void init_timer1(void) //0.05 ms
 {
-    TCCR1B = 0;                    // Stop tc1
-    TIFR1 |= (7<<OCF1A)|(1<<ICF1);  // Clear interruptions
-    TCCR1A = 0;                     // normal mode
-    TCNT1 = BOTTOM;                 // Load BOTTOM value
-    TIMSK1 = (1<<TOIE1);         // Enable overflow interrupt
-    TCCR1B = 2;                   // Start TC1 (TP=8)
+    TCCR1B = 0; // Stop tc1
+    TIFR1 |= (7<<OCF1A)|(1<<ICF1); // Clear interruptions
+    TCCR1A = 0; // normal mode
+    TCNT1 = BOTTOM; // Load BOTTOM value
+    TIMSK1 = (1<<TOIE1); // Enable overflow interrupt
+    TCCR1B = 2; // Start TC1 (TP=8)
 }
 
 ISR(TIMER1_OVF_vect)
 {
-    count_int++;
+    count_int++; //count time for lcd update (250 ms)
 
+    //time to prevent counting more than 1 lap at a time
     if(count_c!=0)
         count_c--;
 
@@ -357,7 +374,7 @@ ISR(TIMER1_OVF_vect)
     else
         enc2[1] = 1;
 
-    //motor A state
+    //update motor A state
     if(st_motorA==0 && enc1[0]==1 && enc2[0]==0)
     {
         st_motorA=2;
@@ -399,7 +416,7 @@ ISR(TIMER1_OVF_vect)
         posA--;
     }
 
-    //motor B state
+    //update motor B state
     if(st_motorB==0 && enc1[1]==1 && enc2[1]==0)
     {
         st_motorB=2;
@@ -442,6 +459,7 @@ ISR(TIMER1_OVF_vect)
     }
     TCNT1 = BOTTOM;                 // Load BOTTOM value (only count 800)
     
+    //count centimeters moved
     if((posA+posB)/2>=210)
     {
         posA=0;
@@ -449,6 +467,7 @@ ISR(TIMER1_OVF_vect)
         deltax++;
     }
 
+    //lcd update
     if(count_int==5000)
     {
         count_int=0;
@@ -520,6 +539,8 @@ ISR(TIMER1_OVF_vect)
 int main(void)
 {
     int IR_sensors[6];
+
+    //initialize everything
     init_interrupts();
     init_IO();
     init_analog();
@@ -530,6 +551,7 @@ int main(void)
     lcd1602_init();
     lcd1602_clear();
 
+    //check if in the middle of a run
     laps = eeprom_read_byte(&laps_eeprom);
     if(laps<0 || laps>NLAPS)
     {
